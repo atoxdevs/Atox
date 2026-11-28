@@ -124,8 +124,9 @@ atox canvas screen set Login .atox/canvas/login.tsx --device iphone
 atox canvas screen set "Admin dashboard" .atox/canvas/admin.tsx --device web
 atox canvas screen set Widget .atox/canvas/widget.tsx --size 360x640
 atox canvas screen set Widget --size 384x640                   # resize an existing screen; the file stays
-atox canvas screen grid Login                                  # the user's grid over the screen and all valid cells
-atox canvas screen grid Login --cell 24 --on                   # pick a grid by cell (or --columns 16) and show it; --off hides it
+atox canvas screen grid Login                                  # the user's grid over the screen: N equal parts and the size of one part
+atox canvas screen grid Login --parts 8                        # split into 8 equal parts (2, 4, 8, 16, 32) and show it; --off hides it
+atox canvas screen grid Login --columns 4 --rows 8             # a different number of parts across and down
 atox canvas screen preview Login                               # PNG of the screen as the user sees it, plus problems
 atox canvas screen remove Login                                # removes the screen; the files stay
 atox canvas arrange "Login,Code,Sign up" "Feed,Post"          # rows of screens, left to right; rows top to bottom
@@ -152,11 +153,11 @@ Edit files with your editor tool, not with \`sed -i\` (on macOS it differs from 
 
 The user double-clicks a screen on the canvas (or picks "Screen tools" in its context menu) to make it the working screen: a tools panel opens at the top right of the canvas, Escape closes it. In the panel the user changes the screen's size (width × height or a preset; this resizes the screen on the canvas, not your code) and turns on a Grid.
 
-- The grid is the user's alignment overlay. It is drawn by the canvas over the screen and is never part of the page: not in your file, not in previews, exports, share links or thumbnails. Never draw it yourself.
-- It always splits the screen into whole, equal squares: the cell size divides both the width and the height exactly, and the number of columns is even, so there are no cut rows or columns. For 1280x1200 the valid grids are 16 × 15 cells of 80px, 32 × 30 of 40px, 64 × 60 of 20px, 80 × 75 of 16px and smaller. Some sizes have no such grid (390x844, odd widths like 375); the panel and \`atox canvas screen grid\` then suggest the nearest sizes that have one.
-- \`atox canvas\` shows each screen's grid ("grid on: 32 × 30 cells · 40px", "grid off: …" or "grid: none"). When the grid is on, the user wants the design aligned to it: make widths, heights, paddings, gaps and offsets of blocks multiples of the cell (with a 40px cell: 40, 80, 120 px; half a cell for small gaps at most), and start and end blocks on cell lines. When it is off, design as usual.
-- \`atox canvas screen grid <name>\` prints the grid and every valid \`--cell\`/\`--columns\`; \`--cell <px>\` or \`--columns <N>\` picks one and shows it, \`--on\`/\`--off\` shows or hides it. An invalid value is rejected with the list of valid ones. Change the grid or the size only when the user asks or agrees: these are the user's tools.
-- \`atox canvas screen set <name> --size WxH\` (or \`--device <id>\`) resizes an existing screen without changing its file. After a resize the grid moves to the nearest valid cell.
+- The grid is the user's alignment guide, like a designer's layout guide. It is drawn by the canvas over the screen and is never part of the page: not in your file, not in previews, exports, share links or thumbnails. Never draw it yourself.
+- It splits the screen into N equal parts across and M equal parts down (N and M are 2, 4, 8, 16 or 32; usually the same). Line k sits exactly at k/N of the width and k/M of the height, so 2 means halves, 4 quarters, 8 eighths. The parts are equal but not necessarily square, and any screen size has every grid. The centre cross (the lines at 1/2) is highlighted.
+- \`atox canvas\` shows each screen's grid ("grid on: 4 × 4 equal parts" or "grid off: …"). When the grid is on, the user wants the design aligned to it: put block edges and centres on the part lines (at k/N of the width and k/M of the height; on a 1280px-wide screen with 8 parts: 160, 320, 480, 640 px …), make blocks span whole parts, and centre the main content on the cross. When it is off, design as usual.
+- \`atox canvas screen grid <name>\` prints the grid and the size of one part; \`--parts N\` sets both axes, \`--columns N\` and \`--rows M\` set one axis each, and picking a number shows the grid; \`--on\`/\`--off\` shows or hides it. Any other number is rejected with the list of valid ones. Change the grid or the size only when the user asks or agrees: these are the user's tools.
+- \`atox canvas screen set <name> --size WxH\` (or \`--device <id>\`) resizes an existing screen without changing its file. The grid keeps its number of parts, so its lines move with the new size.
 
 ## Arranging screens
 

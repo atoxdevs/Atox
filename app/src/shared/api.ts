@@ -391,13 +391,13 @@ export interface AtoxApi {
     rename(canvasId: string, name: string): Promise<void>
     renameScreen(canvasId: string, screenId: string, name: string): Promise<void>
     /**
-     * Сетка поверх экрана (инструмент Grid): видна ли и какая клетка. Клетка должна делить
-     * ширину и высоту экрана нацело с чётным числом столбцов. Страницу экрана сетка не меняет.
+     * Сетка поверх экрана (инструмент Grid): видна ли и на сколько равных частей (2, 4, 8, 16, 32)
+     * делит ширину и высоту. Страницу экрана сетка не меняет.
      */
     setScreenGrid(canvasId: string, screenId: string, grid: ScreenGrid): Promise<void>
     /**
      * Новый размер экрана на холсте (панель инструментов): устройство из списка или свой размер,
-     * рамка экрана остаётся. Меняется экран, а не его HTML; сетка берёт ближайшую верную клетку.
+     * рамка экрана остаётся. Меняется экран, а не его HTML; сетка остаётся той же.
      */
     resizeScreen(canvasId: string, screenId: string, look: ScreenResize): Promise<void>
     /**

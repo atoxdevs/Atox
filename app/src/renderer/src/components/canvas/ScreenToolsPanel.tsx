@@ -1,17 +1,16 @@
 import { useState } from 'react'
-import { ChevronDown, Grid3x3, Minus, Plus, Ruler, X } from 'lucide-react'
+import { ChevronDown, Grid3x3, Link2, Ruler, Unlink2, X } from 'lucide-react'
 import {
   SCREEN_DEVICES,
-  SCREEN_GRID_GOOD_CELL,
+  SCREEN_GRID_PARTS,
   SCREEN_SIZE,
-  describeScreenGridOption,
+  describeScreenGrid,
   devicesOf,
   effectiveScreenGrid,
-  needsBetterScreenSize,
-  screenGridOptions,
-  suggestScreenSizes,
   type CanvasScreen,
   type DeviceCategory,
+  type ScreenGrid,
+  type ScreenGridParts,
   type ScreenResize
 } from '../../../../shared/canvas'
 import { ipcErrorMessage } from '../../lib/ipcError'
@@ -33,47 +32,44 @@ const PRESET_SECTIONS: { category: DeviceCategory; label: string }[] = [
 
 /**
  * Панель рабочего экрана (двойной клик по экрану): инструменты, которые помогают работать с ним
- * на холсте. Размер — меняет сам экран на холсте (его ширину и высоту), а не HTML. Сетка — целые
- * одинаковые квадраты поверх экрана: клетка делит ширину и высоту нацело, столбцов чётное число.
+ * на холсте. Размер — меняет сам экран на холсте (его ширину и высоту), а не HTML. Сетка — равные
+ * части поверх экрана (половины, четверти, восьмые…) с выделенным центральным крестом.
  * Настройки хранятся у экрана и переживают перезапуск, а сама страница от сетки не меняется.
  */
 export function ScreenToolsPanel({ canvasId, screen, onClose }: ScreenToolsPanelProps) {
   const [error, setError] = useState<string | null>(null)
-  const options = screenGridOptions(screen.width, screen.height)
   const grid = effectiveScreenGrid(screen)
-  const current = grid.option
-  const index = current === null ? -1 : options.findIndex(({ cell }) => cell === current.cell)
-  const suggestions = needsBetterScreenSize(screen.width, screen.height)
-    ? suggestScreenSizes(screen.width, screen.height)
-    : []
+  // Связка осей: одно число частей и для ширины, и для высоты. Разные числа у сетки (их поставил
+  // человек раньше или агент) — оси развязаны.
+  const [linkChoice, setLinkChoice] = useState(true)
+  const linked = linkChoice && grid.columns === grid.rows
 
   const run = (action: Promise<void>) => {
     setError(null)
     action.catch((failure: unknown) => setError(ipcErrorMessage(failure)))
   }
-  const saveGrid = (next: { visible: boolean; cell: number }) =>
+  const saveGrid = (next: ScreenGrid) =>
     run(window.atox.canvas.setScreenGrid(canvasId, screen.id, next))
   const resize = (look: ScreenResize) => run(window.atox.canvas.resizeScreen(canvasId, screen.id, look))
 
-  // Новая клетка сразу показывает сетку: иначе выбор ничего бы не изменил на экране.
-  const pick = (cell: number | undefined) => {
-    if (cell !== undefined && cell !== current?.cell) {
-      saveGrid({ visible: true, cell })
+  // Новое число частей сразу показывает сетку: иначе выбор ничего бы не изменил на экране.
+  const pick = (axis: 'both' | 'columns' | 'rows', parts: ScreenGridParts) => {
+    const next: ScreenGrid = {
+      visible: true,
+      columns: axis === 'rows' ? grid.columns : parts,
+      rows: axis === 'columns' ? grid.rows : parts
+    }
+    if (next.columns !== grid.columns || next.rows !== grid.rows || !grid.visible) {
+      saveGrid(next)
     }
   }
 
-  const openOptions = async (anchor: HTMLElement) => {
-    const action = await showMenu(
-      options.map((option) => ({
-        action: String(option.cell),
-        label: describeScreenGridOption(option),
-        checked: option.cell === current?.cell
-      })),
-      anchor
-    )
-    if (action) {
-      pick(Number(action))
+  const toggleLink = () => {
+    if (!linked && grid.columns !== grid.rows) {
+      // Связали заново: высота делится так же, как ширина.
+      saveGrid({ ...grid, rows: grid.columns })
     }
+    setLinkChoice(!linked)
   }
 
   const openPresets = async (anchor: HTMLElement) => {
@@ -82,10 +78,9 @@ export function ScreenToolsPanel({ canvasId, screen, onClose }: ScreenToolsPanel
       label,
       items: devicesOf(category).map((id) => {
         const device = SCREEN_DEVICES[id]
-        const fits = !needsBetterScreenSize(device.width, device.height)
         return {
           action: id,
-          label: `${device.name} · ${device.width} × ${device.height}${fits ? '' : ' · no good grid'}`,
+          label: `${device.name} · ${device.width} × ${device.height}`,
           checked: screen.device === id
         }
       })
@@ -137,33 +132,6 @@ export function ScreenToolsPanel({ canvasId, screen, onClose }: ScreenToolsPanel
           height={screen.height}
           onSubmit={(width, height) => resize({ device: 'custom', width, height })}
         />
-        {suggestions.length > 0 && (
-          <div className="screen-tools__suggest">
-            <p className="screen-tools__hint">
-              {options.length === 0
-                ? `${screen.width} × ${screen.height} can't be split into whole equal squares${screen.width % 2 === 0 ? '' : ' (the width is odd)'}. Nearest sizes that can:`
-                : `Only cells under ${SCREEN_GRID_GOOD_CELL}px fit ${screen.width} × ${screen.height}. Nearest sizes with a coarser grid:`}
-            </p>
-            <div className="screen-tools__chips">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={`${suggestion.width}x${suggestion.height}`}
-                  type="button"
-                  className="screen-tools__chip"
-                  title={`Resize to ${suggestion.width} × ${suggestion.height}: ${describeScreenGridOption(suggestion.grid)}`}
-                  onClick={() =>
-                    resize({ device: 'custom', width: suggestion.width, height: suggestion.height })
-                  }
-                >
-                  <span className="screen-tools__chip-size">
-                    {suggestion.width} × {suggestion.height}
-                  </span>
-                  <span className="screen-tools__chip-grid">{suggestion.grid.cell}px</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
 
       <section className="screen-tools__section" aria-labelledby="screen-tools-grid">
@@ -177,55 +145,38 @@ export function ScreenToolsPanel({ canvasId, screen, onClose }: ScreenToolsPanel
             role="switch"
             className="switch"
             checked={grid.visible}
-            disabled={current === null}
-            onChange={(event) =>
-              current !== null && saveGrid({ visible: event.target.checked, cell: current.cell })
-            }
+            onChange={(event) => saveGrid({ ...grid, visible: event.target.checked })}
           />
         </label>
-        {current === null ? (
-          <p className="screen-tools__hint">
-            No grid for this size: pick a size above whose width and height share a square cell.
-          </p>
-        ) : (
-          <>
-            <div className="screen-tools__stepper" role="group" aria-label="Grid cell">
-              <button
-                type="button"
-                className="screen-tools__step"
-                aria-label="Bigger cells"
-                title="Bigger cells"
-                disabled={index <= 0}
-                onClick={() => pick(options[index - 1]?.cell)}
-              >
-                <Minus className="icon" aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="screen-tools__columns"
-                aria-haspopup="menu"
-                onClick={(event) => void openOptions(event.currentTarget)}
-              >
-                <span>{describeScreenGridOption(current)}</span>
-                <ChevronDown className="icon" aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="screen-tools__step"
-                aria-label="Smaller cells"
-                title="Smaller cells"
-                disabled={index >= options.length - 1}
-                onClick={() => pick(options[index + 1]?.cell)}
-              >
-                <Plus className="icon" aria-hidden />
-              </button>
-            </div>
-            <p className="screen-tools__hint">
-              {current.columns} columns × {current.rows} rows of whole {current.cell}px squares.
-              Only on the canvas: the page, export and share link stay unchanged.
-            </p>
-          </>
-        )}
+        <div className="screen-tools__parts">
+          <PartsPicker
+            label={linked ? 'Parts' : 'Columns'}
+            value={grid.columns}
+            onPick={(parts) => pick(linked ? 'both' : 'columns', parts)}
+          />
+          <button
+            type="button"
+            className="screen-tools__link"
+            aria-pressed={linked}
+            aria-label={linked ? 'Unlink columns and rows' : 'Link columns and rows'}
+            title={
+              linked
+                ? 'Columns and rows are linked. Click to set them separately'
+                : 'Link columns and rows'
+            }
+            onClick={toggleLink}
+          >
+            {linked ? <Link2 className="icon" aria-hidden /> : <Unlink2 className="icon" aria-hidden />}
+          </button>
+          {!linked && (
+            <PartsPicker label="Rows" value={grid.rows} onPick={(parts) => pick('rows', parts)} />
+          )}
+        </div>
+        <p className="screen-tools__hint">
+          {describeScreenGrid(grid)}, each {formatPx(screen.width / grid.columns)} ×{' '}
+          {formatPx(screen.height / grid.rows)} px, with a highlighted centre cross. Only on the
+          canvas: the page, export and share link stay unchanged.
+        </p>
       </section>
       {error && (
         <p className="screen-tools__error" role="alert">
@@ -234,6 +185,47 @@ export function ScreenToolsPanel({ canvasId, screen, onClose }: ScreenToolsPanel
       )}
     </aside>
   )
+}
+
+/** Ряд «2 · 4 · 8 · 16 · 32»: на сколько равных частей делится сторона экрана. */
+function PartsPicker({
+  label,
+  value,
+  onPick
+}: {
+  label: string
+  value: ScreenGridParts
+  onPick(parts: ScreenGridParts): void
+}) {
+  return (
+    <div className="screen-tools__parts-row">
+      <span className="screen-tools__parts-label">{label}</span>
+      <div
+        className="segmented segmented--small screen-tools__segments"
+        role="radiogroup"
+        aria-label={`Grid ${label.toLowerCase()}`}
+      >
+        {SCREEN_GRID_PARTS.map((parts) => (
+          <button
+            key={parts}
+            type="button"
+            role="radio"
+            aria-checked={parts === value}
+            className="segmented__item screen-tools__segment"
+            title={`${parts} equal parts`}
+            onClick={() => onPick(parts)}
+          >
+            {parts}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Сторона части: целое число или до двух знаков после запятой (390 / 8 = 48.75). */
+function formatPx(value: number): string {
+  return String(Number(value.toFixed(2)))
 }
 
 /** Поля ширины и высоты: Enter или «Apply» меняет размер экрана. */
@@ -252,10 +244,6 @@ function SizeForm({
   const nextHeight = parseDimension(draftHeight)
   const changed = nextWidth !== width || nextHeight !== height
   const ready = nextWidth !== null && nextHeight !== null && changed
-  const preview =
-    nextWidth !== null && nextHeight !== null && changed
-      ? screenGridOptions(nextWidth, nextHeight).length > 0
-      : null
 
   return (
     <form
@@ -294,12 +282,7 @@ function SizeForm({
         aria-invalid={nextHeight === null}
         onChange={(event) => setDraftHeight(event.target.value)}
       />
-      <button
-        type="submit"
-        className="screen-tools__apply"
-        disabled={!ready}
-        title={preview === false ? 'This size has no exact square grid' : undefined}
-      >
+      <button type="submit" className="screen-tools__apply" disabled={!ready}>
         Apply
       </button>
     </form>

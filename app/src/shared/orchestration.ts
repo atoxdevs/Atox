@@ -4,7 +4,7 @@
  * Команда подключается к локальному сокету приложения и отправляет одну строку JSON.
  */
 
-import type { ScreenGridOption, ScreenSizeSuggestion } from './canvas'
+import type { ScreenGridParts } from './canvas'
 
 /** Переменные окружения, которые получает терминал каждого чата. */
 export const OrchestrationEnv = {
@@ -74,17 +74,13 @@ export interface CanvasScreenInfo {
 
 /**
  * Сетка экрана, как её видит агент: инструмент человека поверх экрана, в страницу не попадает.
- * Клетка квадратная и делит ширину и высоту нацело, столбцов чётное число.
+ * Делит экран на `columns` равных частей по ширине и `rows` по высоте, центральный крест выделен.
  */
 export interface CanvasScreenGridInfo {
-  /** Человек (или агент) включил сетку: блоки стоит ставить по её клеткам. */
+  /** Человек (или агент) включил сетку: блоки стоит ставить по её линиям. */
   visible: boolean
-  /** Текущая сетка; `null` — у этого размера ровной квадратной сетки нет. */
-  current: ScreenGridOption | null
-  /** Все верные сетки для размера, от крупной клетки к мелкой. */
-  options: ScreenGridOption[]
-  /** Ближайшие размеры с хорошей сеткой, если у текущего её нет или клетки только мелкие. */
-  suggestions: ScreenSizeSuggestion[]
+  columns: ScreenGridParts
+  rows: ScreenGridParts
 }
 
 /** Команды и их параметры/результаты. */
@@ -162,14 +158,16 @@ export interface OrchestrationMethods {
     }
   }
   /**
-   * Сетка экрана: без параметров — только показать. `cell` или `columns` выбирают верную сетку
-   * (и показывают её), `visible` включает или прячет. Неверное значение — ошибка со списком верных.
+   * Сетка экрана: без параметров — только показать. `parts` (обе оси) или `columns`/`rows`
+   * выбирают число равных частей (и показывают сетку), `visible` включает или прячет. Неверное
+   * число — ошибка со списком верных.
    */
   canvasScreenGrid: {
     params: CanvasTargetParams & {
       name: string
-      cell?: number
+      parts?: number
       columns?: number
+      rows?: number
       visible?: boolean
     }
     result: { screen: string; width: number; height: number; grid: CanvasScreenGridInfo }

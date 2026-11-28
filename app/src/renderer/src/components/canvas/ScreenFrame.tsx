@@ -11,6 +11,7 @@ import {
 import { FRAME_INSETS, screenFrame, type Point } from '../../lib/canvasView'
 import { showMenu } from '../../lib/menu'
 import { InlineRename } from '../InlineRename'
+import { ScreenGridOverlay } from './ScreenGridOverlay'
 
 type ScreenAction = 'fix' | 'tools' | 'rename' | 'remove'
 
@@ -149,17 +150,12 @@ export const ScreenFrame = memo(function ScreenFrame({
           src={canvasScreenUrl(canvasId, screen.id, screen.revision, previewVersionId ?? undefined)}
           style={{ width: screen.width, height: screen.height }}
         />
-        {grid.visible && grid.option !== null && (
-          <div
-            className="canvas-screen__grid"
-            aria-hidden
-            style={
-              {
-                width: screen.width,
-                height: screen.height,
-                '--grid-cell': `${grid.option.cell}px`
-              } as CSSProperties
-            }
+        {grid.visible && (
+          <ScreenGridOverlay
+            width={screen.width}
+            height={screen.height}
+            columns={grid.columns}
+            rows={grid.rows}
           />
         )}
         {frame === 'phone' && <span className="canvas-screen__island" aria-hidden />}

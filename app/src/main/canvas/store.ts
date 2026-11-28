@@ -6,11 +6,12 @@ import {
   CANVAS_ZOOM,
   LINK_ON_MAX_LENGTH,
   SCREEN_DEVICES,
-  SCREEN_GRID_MIN_CELL,
+  SCREEN_GRID_DEFAULT_PARTS,
   SCREEN_HISTORY_LIMIT,
   isScreenDeviceId,
   isScreenFrame,
   isScreenGrid,
+  nearestScreenGridParts,
   type Canvas,
   type CanvasGroup,
   type CanvasLink,
@@ -267,7 +268,7 @@ function normalizeScreen(raw: unknown, now: number): StoredScreen | null {
     name,
     ...size,
     ...(size.device === 'custom' && isScreenFrame(frame) && frame !== 'none' && { frame }),
-    ...(normalizeGrid(grid, size.width) ?? {}),
+    ...(normalizeGrid(grid, size.width, size.height) ?? {}),
     file,
     x: finite(value['x']),
     y: finite(value['y']),
@@ -282,25 +283,40 @@ function normalizeScreen(raw: unknown, now: number): StoredScreen | null {
 }
 
 /**
- * Сетка экрана из файла. До точной сетки хранилось число столбцов (`columns`): клетка из него —
- * ширина, делённая на столбцы; подходящую к высоте выберет `effectiveScreenGrid`.
+ * Сетка экрана из файла. Раньше хранилась квадратная клетка (`cell`, px) или только число
+ * столбцов (`columns`, любое): они переводятся в ближайшее верное число равных частей, а что не
+ * разобрать — в сетку по умолчанию.
  */
-function normalizeGrid(raw: unknown, width: number): { grid: ScreenGrid } | null {
+function normalizeGrid(raw: unknown, width: number, height: number): { grid: ScreenGrid } | null {
   if (isScreenGrid(raw)) {
-    return { grid: { visible: raw.visible, cell: raw.cell } }
+    return { grid: { visible: raw.visible, columns: raw.columns, rows: raw.rows } }
   }
   const value = record(raw)
-  const columns = value['columns']
-  if (
-    typeof value['visible'] === 'boolean' &&
-    typeof columns === 'number' &&
-    Number.isSafeInteger(columns) &&
-    columns > 0
-  ) {
-    const cell = Math.max(SCREEN_GRID_MIN_CELL, Math.round(width / columns))
-    return { grid: { visible: value['visible'], cell } }
+  const visible = value['visible']
+  if (typeof visible !== 'boolean') {
+    return null
   }
-  return null
+  const positive = (number: unknown): number | null =>
+    typeof number === 'number' && Number.isFinite(number) && number > 0 ? number : null
+  const cell = positive(value['cell'])
+  const columns = positive(value['columns'])
+  const rows = positive(value['rows'])
+  if (cell !== null) {
+    return {
+      grid: {
+        visible,
+        columns: nearestScreenGridParts(width / cell),
+        rows: nearestScreenGridParts(height / cell)
+      }
+    }
+  }
+  return {
+    grid: {
+      visible,
+      columns: columns === null ? SCREEN_GRID_DEFAULT_PARTS : nearestScreenGridParts(columns),
+      rows: nearestScreenGridParts(rows ?? columns ?? SCREEN_GRID_DEFAULT_PARTS)
+    }
+  }
 }
 
 /** Размер устройства из списка всегда берётся из списка: его могли поменять в новой версии. */

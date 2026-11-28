@@ -6,7 +6,7 @@
  */
 import { createConnection } from 'node:net'
 import { resolve } from 'node:path'
-import { SCREEN_DEVICES, describeScreenGridOption } from '../shared/canvas'
+import { SCREEN_DEVICES, SCREEN_GRID_PARTS, describeScreenGrid } from '../shared/canvas'
 import {
   OrchestrationEnv,
   PARENT_ADDRESS,
@@ -55,12 +55,12 @@ Show screens (app, website, desktop UI) to the user on this chat's canvas.
                                            errors and layout problems.
   atox canvas screen set <name> --size WxH | --device <device>
                                            Resize an existing screen; its file stays the same
-  atox canvas screen grid <name> [--cell <px> | --columns <N>] [--on | --off]
-                                           Show or set the user's grid over a screen: whole equal
-                                           squares (the cell divides width and height, columns
-                                           are even). It is an alignment overlay on the canvas,
-                                           never part of the page. Without options it prints
-                                           the valid cells. When it is on, align blocks to it.
+  atox canvas screen grid <name> [--parts N | --columns N --rows M] [--on | --off]
+                                           Show or set the user's grid over a screen: it splits
+                                           the screen into N equal parts (N = 2, 4, 8, 16, 32)
+                                           with a highlighted centre cross. It is an alignment
+                                           overlay on the canvas, never part of the page. When
+                                           it is on, align blocks to its lines.
   atox canvas screen preview <name>        Render the screen to a PNG and print its path, so you
                                            can open the image and check your work. Also reports
                                            build errors, runtime errors and content that does
@@ -232,44 +232,29 @@ const CANVAS_SET_COMMAND = 'atox canvas screen set <name> <file.tsx> [--device <
 const CANVAS_SET_USAGE = `Usage: ${CANVAS_SET_COMMAND} [--size WxH], or atox canvas screen set <name> --size WxH to resize. Quote names with spaces.`
 
 const CANVAS_GRID_USAGE =
-  'Usage: atox canvas screen grid <name> [--cell <px> | --columns <N>] [--on | --off]'
+  'Usage: atox canvas screen grid <name> [--parts N | --columns N --rows M] [--on | --off]'
 
-/** «on, 32 × 30 cells · 40px» — сетка экрана одной строкой. */
+/** Как выравнивать блоки по включённой сетке — подсказка агенту. */
+const GRID_ALIGN_HINT =
+  'Align block edges and centres to the part lines (k/N of the width and height) and centre content on the cross.'
+
+/** «grid on: 4 × 4 equal parts» — сетка экрана одной строкой. */
 function describeGrid(grid: CanvasScreenGridInfo): string {
-  if (!grid.current) {
-    return 'grid: none (no exact square grid for this size)'
-  }
-  return `grid ${grid.visible ? 'on' : 'off'}: ${describeScreenGridOption(grid.current)}`
+  return `grid ${grid.visible ? 'on' : 'off'}: ${describeScreenGrid(grid)}`
 }
 
-/** Сетка экрана подробно: текущая, все верные клетки и размеры получше. */
+/** Сетка экрана подробно: текущая, где её линии и какие числа частей верные. */
 function describeGridDetails(name: string, width: number, height: number, grid: CanvasScreenGridInfo): string {
-  const lines = [`Screen "${name}", ${width}x${height}, ${describeGrid(grid)}.`]
-  if (grid.current && grid.visible) {
-    lines.push(
-      `The user aligns the design to this grid: make sizes and offsets of blocks multiples of ${grid.current.cell}px.`
-    )
+  const step = (side: number, parts: number) => `${Number((side / parts).toFixed(2))}px`
+  const lines = [
+    `Screen "${name}", ${width}x${height}, ${describeGrid(grid)} (each part ${step(width, grid.columns)} × ${step(height, grid.rows)}; centre cross at ${width / 2}px, ${height / 2}px).`
+  ]
+  if (grid.visible) {
+    lines.push(`The user aligns the design to this grid. ${GRID_ALIGN_HINT}`)
   }
-  if (grid.options.length > 0) {
-    lines.push(
-      'Valid grids (--cell <px> or --columns <N>):',
-      ...grid.options.map(
-        (option) => `- --cell ${option.cell}\t--columns ${option.columns}\t${describeScreenGridOption(option)}`
-      )
-    )
-  }
-  if (grid.suggestions.length > 0) {
-    lines.push(
-      grid.options.length === 0
-        ? 'This size has no exact square grid. Nearest sizes with one:'
-        : 'Only small cells fit this size. Nearest sizes with a coarser grid:',
-      ...grid.suggestions.map(
-        (suggestion) =>
-          `- ${suggestion.width}x${suggestion.height}\t${describeScreenGridOption(suggestion.grid)}`
-      ),
-      `Resize only if the user agrees: atox canvas screen set "${name}" --size WxH`
-    )
-  }
+  lines.push(
+    `Valid numbers of equal parts for --parts, --columns and --rows: ${SCREEN_GRID_PARTS.join(', ')}.`
+  )
   return lines.join('\n')
 }
 
@@ -366,10 +351,8 @@ async function canvas(rawArgs: string[]): Promise<string> {
         done,
         `From now on just edit ${result.file} (and the files it imports): the canvas updates by itself. Run this command again only to change the device or size.`
       ].join(' '),
-      ...(result.grid.visible && result.grid.current
-        ? [
-            `The user's grid is on: ${describeScreenGridOption(result.grid.current)}. Align blocks to it (sizes and offsets in multiples of ${result.grid.current.cell}px).`
-          ]
+      ...(result.grid.visible
+        ? [`The user's grid is on: ${describeScreenGrid(result.grid)}. ${GRID_ALIGN_HINT}`]
         : []),
       ...describeProblems(result)
     ].join('\n')
@@ -378,7 +361,7 @@ async function canvas(rawArgs: string[]): Promise<string> {
     const switches = rest.filter((part) => part === '--on' || part === '--off')
     const { values, positional } = parseFlags(
       rest.filter((part) => part !== '--on' && part !== '--off'),
-      ['cell', 'columns']
+      ['parts', 'columns', 'rows']
     )
     const [name] = positional
     if (!name || positional.length > 1 || switches.length > 1) {
@@ -391,17 +374,21 @@ async function canvas(rawArgs: string[]): Promise<string> {
       }
       const number = Number(raw)
       if (!Number.isSafeInteger(number) || number <= 0) {
-        throw new UsageError(`--${flag} must be a whole number of ${flag === 'cell' ? 'pixels' : 'columns'}.`)
+        throw new UsageError(
+          `--${flag} must be one of ${SCREEN_GRID_PARTS.join(', ')} (the number of equal parts).`
+        )
       }
       return number
     }
-    const cell = whole('cell')
+    const parts = whole('parts')
     const columns = whole('columns')
+    const rows = whole('rows')
     const result = await call('canvasScreenGrid', {
       ...target,
       name,
-      ...(cell !== undefined && { cell }),
+      ...(parts !== undefined && { parts }),
       ...(columns !== undefined && { columns }),
+      ...(rows !== undefined && { rows }),
       ...(switches[0] !== undefined && { visible: switches[0] === '--on' })
     })
     return describeGridDetails(result.screen, result.width, result.height, result.grid)

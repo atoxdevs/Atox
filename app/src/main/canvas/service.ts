@@ -7,6 +7,7 @@ import {
   CANVAS_LINKS_MAX,
   DEFAULT_SCREEN_DEVICE,
   LINK_ON_MAX_LENGTH,
+  SCREEN_GRID_PARTS,
   SCREEN_SIZE,
   SCREEN_DEVICES,
   STANDALONE_CANVAS_PREFIX,
@@ -16,14 +17,10 @@ import {
   isScreenDeviceId,
   isScreenFrame,
   effectiveScreenGrid,
-  describeScreenGridOption,
   isScreenGrid,
+  isScreenGridParts,
   isStandaloneCanvas,
-  nearestScreenGridOption,
-  needsBetterScreenSize,
   screenFrameOf,
-  screenGridOptions,
-  suggestScreenSizes,
   screenSourceKind,
   type CanvasExportFormat,
   type CanvasExportResult,
@@ -33,6 +30,7 @@ import {
   type ScreenDevice,
   type ScreenDeviceId,
   type ScreenFrame,
+  type ScreenGridParts,
   type ScreenVersion
 } from '../../shared/canvas'
 import type { Project } from '../../shared/models'
@@ -145,10 +143,11 @@ export interface AgentScreenResult {
   grid: CanvasScreenGridInfo
 }
 
-/** Сетка, которую ставит агент: клетка или число столбцов (одно из них) и видимость. */
+/** Сетка, которую ставит агент: число частей по обеим осям или по каждой и видимость. */
 export interface AgentGridRequest {
-  cell?: number
+  parts?: number
   columns?: number
+  rows?: number
   visible?: boolean
 }
 
@@ -508,14 +507,14 @@ export class CanvasService implements ScreenDocumentSource {
 
   /**
    * Сетка поверх экрана: инструмент человека на холсте. Хранится у экрана, но не меняет его файл,
-   * не уходит в выгрузку и в ссылку. Клетка должна быть одной из верных для размера экрана.
+   * не уходит в выгрузку и в ссылку. Число частей по каждой оси — одно из верных.
    */
   setScreenGrid(canvasId: string, screenId: string, grid: unknown): void {
     const { screen } = this.getScreen(canvasId, screenId)
-    if (!isScreenGrid(grid) || !isGridCellOf(screen, grid.cell)) {
+    if (!isScreenGrid(grid)) {
       throw new CanvasError('Invalid screen grid.')
     }
-    screen.grid = { visible: grid.visible, cell: grid.cell }
+    screen.grid = { visible: grid.visible, columns: grid.columns, rows: grid.rows }
     this.changed()
   }
 
@@ -539,7 +538,6 @@ export class CanvasService implements ScreenDocumentSource {
       Object.assign(screen, deviceLook(next.device))
       delete screen.frame
     }
-    refitGrid(screen)
     canvas.updatedAt = Date.now()
     this.changed()
     // Другой размер экрана сдвигает кнопки: линии от них находят их заново.
@@ -547,50 +545,40 @@ export class CanvasService implements ScreenDocumentSource {
   }
 
   /**
-   * Сетка экрана по команде агента: показать, выбрать клетку или число столбцов, включить или
-   * спрятать. Неверная клетка — ошибка со списком верных.
+   * Сетка экрана по команде агента: показать, выбрать число равных частей (обе оси или каждую),
+   * включить или спрятать. Неверное число — ошибка со списком верных.
    */
   setGridForAgent(target: CanvasTarget, name: string, request: AgentGridRequest): AgentGridResult {
     const canvas = this.agentCanvas(target)
     const screen = this.screenNamed(canvas, name)
-    const options = screenGridOptions(screen.width, screen.height)
-    const changing =
-      request.cell !== undefined || request.columns !== undefined || request.visible !== undefined
-    if (changing) {
-      if (request.cell !== undefined && request.columns !== undefined) {
-        throw new CanvasError('Use either --cell or --columns, not both.')
+    const { parts, columns, rows } = request
+    if (parts !== undefined && (columns !== undefined || rows !== undefined)) {
+      throw new CanvasError('Use either --parts or --columns/--rows, not both.')
+    }
+    const picked = (flag: string, value: number | undefined): ScreenGridParts | undefined => {
+      if (value === undefined) {
+        return undefined
       }
-      if (options.length === 0) {
+      if (!isScreenGridParts(value)) {
         throw new CanvasError(
-          `${screen.width}x${screen.height} has no exact square grid. ${describeSuggestions(screen)}`
+          `--${flag} ${value} is not a valid grid. Valid numbers of equal parts: ${SCREEN_GRID_PARTS.join(', ')}.`
         )
       }
-      const current = effectiveScreenGrid(screen).option ?? options[0]!
-      let option = current
-      if (request.cell !== undefined) {
-        const found = options.find(({ cell }) => cell === request.cell)
-        if (!found) {
-          throw new CanvasError(
-            `A ${request.cell}px cell does not split ${screen.width}x${screen.height} into whole squares. ${describeOptions(screen)}`
-          )
-        }
-        option = found
-      } else if (request.columns !== undefined) {
-        const found = options.find(({ columns }) => columns === request.columns)
-        if (!found) {
-          throw new CanvasError(
-            `${request.columns} columns do not split ${screen.width}x${screen.height} into whole squares. ${describeOptions(screen)}`
-          )
-        }
-        option = found
-      }
-      // Выбор клетки показывает сетку: иначе он ничего бы не изменил на экране.
+      return value
+    }
+    const nextColumns = picked(parts !== undefined ? 'parts' : 'columns', parts ?? columns)
+    const nextRows = picked(parts !== undefined ? 'parts' : 'rows', parts ?? rows)
+    if (nextColumns !== undefined || nextRows !== undefined || request.visible !== undefined) {
+      const current = effectiveScreenGrid(screen)
+      // Выбор числа частей показывает сетку: иначе он ничего бы не изменил на экране.
       const visible =
         request.visible ??
-        (request.cell !== undefined || request.columns !== undefined
-          ? true
-          : (screen.grid?.visible ?? false))
-      screen.grid = { visible, cell: option.cell }
+        (nextColumns !== undefined || nextRows !== undefined ? true : current.visible)
+      screen.grid = {
+        visible,
+        columns: nextColumns ?? current.columns,
+        rows: nextRows ?? current.rows
+      }
       this.changed()
     }
     return {
@@ -947,7 +935,6 @@ export class CanvasService implements ScreenDocumentSource {
       if (look) {
         // Агент выбрал устройство или свой размер: рамка, которую выбирал человек, уходит.
         delete screen.frame
-        refitGrid(screen)
       }
     } else if (file === undefined) {
       // Экран удалили, пока шла команда.
@@ -2099,55 +2086,10 @@ async function writeBlankScreenFile(
   throw new CanvasError(`Could not find a free file name in ${folder}.`)
 }
 
-/** Клетка `cell` — одна из верных сеток для размера экрана. */
-function isGridCellOf(screen: Pick<StoredScreen, 'width' | 'height'>, cell: number): boolean {
-  return screenGridOptions(screen.width, screen.height).some((option) => option.cell === cell)
-}
-
-/**
- * После смены размера сетка берёт ближайшую верную клетку. Если у нового размера ровной сетки
- * нет, клетка остаётся прежней: вернётся размер — вернётся и сетка.
- */
-function refitGrid(screen: StoredScreen): void {
-  if (!screen.grid) {
-    return
-  }
-  const option = nearestScreenGridOption(screen.width, screen.height, screen.grid.cell)
-  if (option) {
-    screen.grid = { visible: screen.grid.visible, cell: option.cell }
-  }
-}
-
-/** Сетка экрана для агента: включена ли, текущая, все верные и размеры получше. */
+/** Сетка экрана для агента: включена ли и на сколько равных частей делит экран. */
 function gridInfoOf(screen: StoredScreen): CanvasScreenGridInfo {
-  const { visible, option } = effectiveScreenGrid(screen)
-  return {
-    visible,
-    current: option,
-    options: screenGridOptions(screen.width, screen.height),
-    suggestions: needsBetterScreenSize(screen.width, screen.height)
-      ? suggestScreenSizes(screen.width, screen.height)
-      : []
-  }
-}
-
-/** «Valid options: --cell 80 (16 × 15 cells · 80px), …» — для ошибки агенту. */
-function describeOptions(screen: StoredScreen): string {
-  const options = screenGridOptions(screen.width, screen.height)
-  return `Valid options for ${screen.width}x${screen.height}: ${options
-    .map((option) => `--cell ${option.cell} or --columns ${option.columns} (${describeScreenGridOption(option)})`)
-    .join('; ')}.`
-}
-
-/** «Nearest sizes with a good grid: 384x840 (…)» — для ошибки агенту. */
-function describeSuggestions(screen: StoredScreen): string {
-  const suggestions = suggestScreenSizes(screen.width, screen.height)
-  if (suggestions.length === 0) {
-    return ''
-  }
-  return `Nearest sizes with a good square grid: ${suggestions
-    .map(({ width, height, grid }) => `${width}x${height} (${describeScreenGridOption(grid)})`)
-    .join(', ')}. Resize with: atox canvas screen set "${screen.name}" --size WxH.`
+  const { visible, columns, rows } = effectiveScreenGrid(screen)
+  return { visible, columns, rows }
 }
 
 /** Новый размер экрана из панели: устройство из списка или свой размер (рамку берёт экран). */

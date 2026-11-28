@@ -319,21 +319,22 @@ export class OrchestrationServer {
       })
     },
 
-    canvasScreenGrid: (caller, { name, cell, columns, visible, canvas }) => {
+    canvasScreenGrid: (caller, { name, parts, columns, rows, visible, canvas }) => {
       if (typeof name !== 'string' || !name.trim()) {
         throw new CommandError('Specify the name of the screen.')
       }
       const whole = (value: unknown) =>
         value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0)
-      if (!whole(cell) || !whole(columns)) {
-        throw new CommandError('The cell and the columns must be whole positive numbers.')
+      if (!whole(parts) || !whole(columns) || !whole(rows)) {
+        throw new CommandError('The number of parts must be a whole positive number.')
       }
       if (visible !== undefined && typeof visible !== 'boolean') {
         throw new CommandError('Invalid grid visibility.')
       }
       return this.services.canvas.setGridForAgent(targetOf(caller, canvas), name, {
-        ...(cell !== undefined && { cell }),
+        ...(parts !== undefined && { parts }),
         ...(columns !== undefined && { columns }),
+        ...(rows !== undefined && { rows }),
         ...(visible !== undefined && { visible })
       })
     },

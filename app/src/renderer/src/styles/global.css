@@ -172,9 +172,14 @@
   --canvas-group-border: light-dark(rgba(50, 40, 100, 0.14), rgba(255, 255, 255, 0.1));
   --canvas-screen-shadow-color: light-dark(rgba(40, 30, 90, 0.16), rgba(0, 0, 0, 0.5));
   --canvas-screen-background: #ffffff;
-  /* Линии сетки экрана двойные — тёмная и светлая рядом, поэтому видны на любой странице. */
-  --canvas-screen-grid-dark: rgba(20, 20, 40, 0.22);
-  --canvas-screen-grid-light: rgba(255, 255, 255, 0.3);
+  /*
+   * Линии сетки экрана — тёмная середина со светлой каймой, поэтому видны на любой странице.
+   * Четверти темнее остальных, центральный крест — акцентом.
+   */
+  --canvas-screen-grid-line: rgba(20, 20, 40, 0.26);
+  --canvas-screen-grid-quarter: rgba(20, 20, 40, 0.46);
+  --canvas-screen-grid-halo: rgba(255, 255, 255, 0.42);
+  --canvas-screen-grid-cross-halo: rgba(255, 255, 255, 0.7);
   --canvas-device-bezel: #101114;
   --canvas-chrome-background: #f4f4f8;
   --canvas-chrome-border: #e8e8ef;
@@ -6865,46 +6870,50 @@ button.usage-indicator[data-warning='true']:hover {
 }
 
 /*
- * Сетка экрана: квадратные клетки поверх iframe, ровно по его месту в рамке устройства. Линия
- * в пиксель окна при любом масштабе, но не толще восьмой части клетки — мелкая сетка на малом
- * масштабе не заливает экран. Это слой холста: в страницу, выгрузку и ссылку он не попадает.
+ * Сетка экрана: равные части поверх iframe, ровно по его месту в рамке устройства. SVG в px
+ * страницы, линии стоят точно на k/N стороны. Толщина — в пикселях окна при любом масштабе, но не
+ * больше восьмой части доли: мелкая сетка на малом масштабе не заливает экран. Это слой холста: в
+ * страницу, выгрузку и ссылку он не попадает.
  */
 .canvas-screen__grid {
-  --grid-line: min(calc(1px / var(--z)), calc(var(--grid-cell) / 8));
   position: absolute;
   top: var(--frame-top);
   left: var(--frame-side);
+  overflow: hidden;
   border-radius: var(--screen-radius, 0);
   pointer-events: none;
-  background-image:
-    linear-gradient(
-      to right,
-      var(--canvas-screen-grid-dark) var(--grid-line),
-      transparent var(--grid-line)
-    ),
-    linear-gradient(
-      to bottom,
-      var(--canvas-screen-grid-dark) var(--grid-line),
-      transparent var(--grid-line)
-    ),
-    linear-gradient(
-      to right,
-      transparent var(--grid-line),
-      var(--canvas-screen-grid-light) var(--grid-line),
-      var(--canvas-screen-grid-light) calc(var(--grid-line) * 2),
-      transparent calc(var(--grid-line) * 2)
-    ),
-    linear-gradient(
-      to bottom,
-      transparent var(--grid-line),
-      var(--canvas-screen-grid-light) var(--grid-line),
-      var(--canvas-screen-grid-light) calc(var(--grid-line) * 2),
-      transparent calc(var(--grid-line) * 2)
-    );
-  background-size: var(--grid-cell) var(--grid-cell);
-  /* Клетки целые, поэтому правый и нижний край — тоже линия сетки: последние квадраты закрыты. */
-  box-shadow: inset calc(var(--grid-line) * -1) calc(var(--grid-line) * -1) 0
-    var(--canvas-screen-grid-dark);
+}
+
+.screen-grid {
+  --grid-hair: min(calc(1px / var(--z)), calc(var(--grid-part) / 8));
+  display: block;
+  overflow: hidden;
+  fill: none;
+}
+
+.screen-grid__halo {
+  stroke: var(--canvas-screen-grid-halo);
+  stroke-width: calc(var(--grid-hair) * 3);
+}
+
+.screen-grid__halo--cross {
+  stroke: var(--canvas-screen-grid-cross-halo);
+  stroke-width: calc(var(--grid-hair) * 5);
+}
+
+.screen-grid__line {
+  stroke: var(--canvas-screen-grid-line);
+  stroke-width: var(--grid-hair);
+}
+
+.screen-grid__line--quarter {
+  stroke: var(--canvas-screen-grid-quarter);
+  stroke-width: calc(var(--grid-hair) * 1.5);
+}
+
+.screen-grid__line--cross {
+  stroke: var(--color-accent);
+  stroke-width: calc(var(--grid-hair) * 2.5);
 }
 
 /*
@@ -6990,48 +6999,56 @@ button.usage-indicator[data-warning='true']:hover {
   font-weight: 500;
 }
 
-.screen-tools__stepper {
-  display: flex;
-  gap: 4px;
+/* Число частей: подпись, ряд «2 · 4 · 8 · 16 · 32» и связка осей справа от первого ряда. */
+.screen-tools__parts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
 }
 
-.screen-tools__step,
-.screen-tools__columns {
+.screen-tools__parts-row {
+  display: contents;
+}
+
+.screen-tools__parts-label {
+  min-width: 52px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
+}
+
+.screen-tools__segments {
+  min-width: 0;
+}
+
+.screen-tools__segment {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.segmented--small .screen-tools__segment {
+  padding: 0;
+}
+
+.screen-tools__link {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: var(--canvas-button-height);
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
+  color: var(--color-text-muted);
+}
+
+.screen-tools__link:hover {
+  color: var(--color-text);
   background: var(--color-hover);
 }
 
-.screen-tools__step {
-  flex-shrink: 0;
-  width: var(--canvas-button-height);
-}
-
-.screen-tools__columns {
-  flex: 1;
-  gap: 6px;
-  min-width: 0;
-  padding: 0 10px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.screen-tools__columns span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.screen-tools__step:hover:not(:disabled),
-.screen-tools__columns:hover {
-  background: var(--color-active);
-}
-
-.screen-tools__step:disabled {
-  opacity: 0.4;
-  cursor: default;
+.screen-tools__link[aria-pressed='true'] {
+  color: var(--color-accent);
 }
 
 .screen-tools__hint {
@@ -7114,40 +7131,6 @@ button.usage-indicator[data-warning='true']:hover {
 .screen-tools__apply:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-.screen-tools__suggest {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.screen-tools__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.screen-tools__chip {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: var(--font-size-small);
-  font-variant-numeric: tabular-nums;
-  line-height: 22px;
-}
-
-.screen-tools__chip:hover {
-  border-color: var(--color-accent);
-  background: var(--color-hover);
-}
-
-.screen-tools__chip-grid {
-  color: var(--color-text-muted);
 }
 
 .screen-tools__error {
