@@ -8,7 +8,7 @@ const PORT = Number(process.env.PORT) || 3000
  * Репозиторий с релизами Atox. Он закрытый, поэтому файлы релизов берутся через API GitHub
  * с токеном на чтение, а приложение и сайт получают их по адресам `/updates/...` этого сервера.
  */
-const GITHUB_REPO = process.env.GITHUB_REPO || 'ATOX-DEVELOPMENT/Atox'
+const GITHUB_REPO = process.env.GITHUB_REPO || 'atoxdevs/Atox'
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}`
 /** Манифесты обновлений — те же, по которым обновляется само приложение. */
